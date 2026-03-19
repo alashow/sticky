@@ -8,8 +8,12 @@ import json
 import uuid
 
 # --- 1. Path & Config Management ---
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-CONFIG_FILE = os.path.join(SCRIPT_DIR, 'config.json')
+# Use the standard Windows AppData directory so notes survive PyInstaller temp folders
+APP_DIR = os.path.join(os.getenv('LOCALAPPDATA', os.path.expanduser('~')), 'StickyCounter')
+if not os.path.exists(APP_DIR):
+    os.makedirs(APP_DIR, exist_ok=True)
+
+CONFIG_FILE = os.path.join(APP_DIR, 'config.json')
 
 def load_global_config():
     if os.path.exists(CONFIG_FILE):
@@ -20,14 +24,17 @@ def load_global_config():
     return {}
 
 global_config = load_global_config()
-SAVE_DIR = global_config.get('save_dir', SCRIPT_DIR)
+
+# Set the default note saving folder to be inside our safe AppData folder
+SAVE_DIR = global_config.get('save_dir', os.path.join(APP_DIR, 'notes'))
+
+if not os.path.exists(SAVE_DIR):
+    os.makedirs(SAVE_DIR, exist_ok=True)
+
 BG_ALPHA = global_config.get('bg_alpha', 0.90)
 CONTENT_ALPHA = global_config.get('content_alpha', 1.0)
 DESC_FONT_SIZE = global_config.get('desc_font_size', 12)
 VAL_FONT_SIZE = global_config.get('val_font_size', 48)
-
-if not os.path.exists(SAVE_DIR):
-    os.makedirs(SAVE_DIR, exist_ok=True)
 
 # --- 2. Master Launch Logic ---
 if len(sys.argv) == 1:
@@ -36,7 +43,10 @@ if len(sys.argv) == 1:
         my_note_id = existing_notes[0].replace('.json', '')
         for note_file in existing_notes[1:]:
             nid = note_file.replace('.json', '')
-            subprocess.Popen([sys.executable, os.path.abspath(__file__), nid])
+            if getattr(sys, 'frozen', False):
+                subprocess.Popen([sys.executable, nid])
+            else:
+                subprocess.Popen([sys.executable, os.path.abspath(__file__), nid])
     else:
         my_note_id = f"note_{uuid.uuid4().hex[:8]}"
 else:
@@ -81,7 +91,6 @@ def load_data():
             with open(path, 'r') as f:
                 data = json.load(f)
                 
-                # Check if it's the new array format or old format
                 if 'items' in data:
                     loaded_items = data['items']
                 else:
@@ -155,13 +164,12 @@ def show_in_taskbar():
 def on_configure(event):
     if event.widget == window:
         schedule_save()
-        # Ensure the background window flawlessly matches the content window's size and position
         try:
             bg_window.geometry(f"{window.winfo_width()}x{window.winfo_height()}+{window.winfo_x()}+{window.winfo_y()}")
         except: pass
 
 def start_move(event):
-    window.lift() # Prevent background window from covering content when clicked
+    window.lift() 
     window._x = event.x
     window._y = event.y
 
@@ -176,7 +184,7 @@ def toggle_pin():
     window.attributes('-topmost', not is_pinned)
     bg_window.attributes('-topmost', not is_pinned)
     
-    if not is_pinned: # If turning ON topmost
+    if not is_pinned: 
         bg_window.lift()
         window.lift()
         
@@ -186,7 +194,10 @@ def toggle_pin():
 
 def duplicate_app():
     new_id = f"note_{uuid.uuid4().hex[:8]}"
-    subprocess.Popen([sys.executable, os.path.abspath(__file__), new_id])
+    if getattr(sys, 'frozen', False):
+        subprocess.Popen([sys.executable, new_id])
+    else:
+        subprocess.Popen([sys.executable, os.path.abspath(__file__), new_id])
 
 def minimize_app():
     window.overrideredirect(False)
@@ -325,17 +336,16 @@ def open_settings():
 
 
 # --- 6. Main Window Setup ---
-CHROMA_KEY = "#010101" # The magic color that Windows turns completely invisible
+CHROMA_KEY = "#010101" 
 
 window = tk.Tk()
 window.geometry("+100+100") 
 window.overrideredirect(True) 
 window.attributes('-topmost', True)
 window.attributes('-alpha', CONTENT_ALPHA) 
-window.attributes('-transparentcolor', CHROMA_KEY) # Tells OS to ignore background
+window.attributes('-transparentcolor', CHROMA_KEY) 
 window.config(bg=CHROMA_KEY)
 
-# 6B. Background Sub-Window
 bg_window = tk.Toplevel(window)
 bg_window.geometry("+100+100")
 bg_window.overrideredirect(True)
@@ -350,7 +360,6 @@ window.bind('<Configure>', on_configure)
 window.bind('<Map>', handle_map_and_focus)     
 window.bind('<FocusIn>', handle_map_and_focus) 
 
-# Bind drag to background window because invisible pixels let mouse clicks fall through
 bg_window.bind("<ButtonPress-1>", start_move)
 bg_window.bind("<B1-Motion>", do_move)
 
@@ -401,7 +410,6 @@ def add_row(desc_val="Tracker...", val_val="0"):
     
     on_text_change()
     
-    # Let tk catch up with layout math before snapping the shadow
     window.update_idletasks()
     try:
         bg_window.geometry(f"{window.winfo_width()}x{window.winfo_height()}+{window.winfo_x()}+{window.winfo_y()}")
@@ -416,7 +424,6 @@ def remove_row():
         try:
             bg_window.geometry(f"{window.winfo_width()}x{window.winfo_height()}+{window.winfo_x()}+{window.winfo_y()}")
         except: pass
-
 
 add_row_btn = tk.Button(header, text="＋", bg=bg_color, fg="#aaaaaa", bd=0, activebackground="#333333", activeforeground="white", font=("Segoe UI", 11, "bold"), cursor="hand2", command=add_row)
 add_row_btn.pack(side=tk.LEFT, padx=2)

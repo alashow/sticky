@@ -6,6 +6,18 @@ import subprocess
 import os
 import json
 import uuid
+import re
+
+# --- Custom Embedded Icon (A neat, minimalist dark blue icon) ---
+ICON_BASE64 = (
+    "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAABHNCSVQICAgIfAhkiAAAAAlwSFlz"
+    "AAALEwAACxMBAJqcGAAAAHJJREFUWIXt1rENwCAQRMEHk4qMoJ+6UD4dKCA+gT0715/kSZZkCQBw"
+    "1Z6qOp+L8/e89r1H++t6j+0/tv/Y/mP7j+0/tv/Y/mP7j+0/tv/Y/mP7j+0/tv/Y/mP7j+0/tv/Y"
+    "/mP7j+0/tv/Y/mP77/2mAIo9F0QeW73fAAAAAElFTkSuQmCC"
+)
+
+# The magic color that Windows turns completely invisible
+CHROMA_KEY = "#010101" 
 
 # --- 1. Path & Config Management ---
 # Use the standard Windows AppData directory so notes survive PyInstaller temp folders
@@ -76,11 +88,62 @@ def save_data():
     except Exception as e:
         pass
 
+def modify_number(var, match_index, amount):
+    text = var.get()
+    matches = list(re.finditer(r'-?\d+', text))
+    if match_index < len(matches):
+        m = matches[match_index]
+        old_val = int(m.group())
+        new_val = old_val + amount
+        # Reconstruct string with the new number
+        new_text = text[:m.start()] + str(new_val) + text[m.end():]
+        var.set(new_text)
+    elif len(matches) == 0:
+        var.set(str(amount))
+
+def update_buttons(c):
+    if 'btn_frame' not in c:
+        return
+        
+    text = c['val_var'].get()
+    matches = list(re.finditer(r'-?\d+', text))
+    num_matches = len(matches) if len(matches) > 0 else 1
+    
+    # Don't recreate buttons if the count of integers hasn't changed
+    if getattr(c['btn_frame'], 'num_buttons', -1) == num_matches:
+        return
+        
+    for widget in c['btn_frame'].winfo_children():
+        widget.destroy()
+        
+    c['btn_frame'].num_buttons = num_matches
+    btn_font = ("Segoe UI", 9, "bold")
+    
+    if len(matches) == 0:
+        f = tk.Frame(c['btn_frame'], bg=CHROMA_KEY, highlightthickness=0, bd=0)
+        f.pack(side=tk.LEFT, padx=8)
+        tk.Button(f, text="−", bg=CHROMA_KEY, fg="#555555", bd=0, activebackground="#333333", activeforeground="white", font=btn_font, cursor="hand2", command=lambda: modify_number(c['val_var'], 0, -1)).pack(side=tk.LEFT, padx=2)
+        tk.Button(f, text="＋", bg=CHROMA_KEY, fg="#555555", bd=0, activebackground="#333333", activeforeground="white", font=btn_font, cursor="hand2", command=lambda: modify_number(c['val_var'], 0, 1)).pack(side=tk.LEFT, padx=2)
+    else:
+        for i in range(num_matches):
+            f = tk.Frame(c['btn_frame'], bg=CHROMA_KEY, highlightthickness=0, bd=0)
+            f.pack(side=tk.LEFT, padx=8)
+            tk.Button(f, text="−", bg=CHROMA_KEY, fg="#555555", bd=0, activebackground="#333333", activeforeground="white", font=btn_font, cursor="hand2", command=lambda idx=i: modify_number(c['val_var'], idx, -1)).pack(side=tk.LEFT, padx=2)
+            tk.Button(f, text="＋", bg=CHROMA_KEY, fg="#555555", bd=0, activebackground="#333333", activeforeground="white", font=btn_font, cursor="hand2", command=lambda idx=i: modify_number(c['val_var'], idx, 1)).pack(side=tk.LEFT, padx=2)
+
+    # Force background window to sync geometry to fit new buttons
+    try:
+        window.update_idletasks()
+        bg_window.geometry(f"{window.winfo_width()}x{window.winfo_height()}+{window.winfo_x()}+{window.winfo_y()}")
+    except NameError:
+        pass # bg_window not fully loaded yet
+
 def on_text_change(*args):
     schedule_save()
     for c in counters:
         c['desc_entry'].config(width=max(8, len(c['desc_var'].get())))
         c['val_entry'].config(width=max(2, len(c['val_var'].get())))
+        update_buttons(c)
 
 def load_data():
     path = os.path.join(SAVE_DIR, f"{my_note_id}.json")
@@ -336,9 +399,15 @@ def open_settings():
 
 
 # --- 6. Main Window Setup ---
-CHROMA_KEY = "#010101" 
 
 window = tk.Tk()
+
+# Set Custom Icon Globally
+try:
+    app_icon = tk.PhotoImage(data=ICON_BASE64)
+    window.iconphoto(True, app_icon)
+except: pass
+
 window.geometry("+100+100") 
 window.overrideredirect(True) 
 window.attributes('-topmost', True)
@@ -398,14 +467,19 @@ def add_row(desc_val="Tracker...", val_val="0"):
     val_var.trace_add("write", on_text_change)
     
     val_entry = tk.Entry(row_frame, textvariable=val_var, font=("Segoe UI", global_config.get('val_font_size', 48), "bold"), bg=CHROMA_KEY, fg="#ffffff", bd=0, highlightthickness=0, justify="center", insertbackground="white")
-    val_entry.pack(expand=True, fill=tk.BOTH, pady=(0, 5))
+    val_entry.pack(expand=True, fill=tk.BOTH, pady=0)
+    
+    # Tiny dynamic + / - Buttons container
+    btn_frame = tk.Frame(row_frame, bg=CHROMA_KEY, highlightthickness=0, bd=0)
+    btn_frame.pack(pady=(0, 5))
     
     counters.append({
         'desc_var': desc_var,
         'val_var': val_var,
         'frame': row_frame,
         'desc_entry': desc_entry,
-        'val_entry': val_entry
+        'val_entry': val_entry,
+        'btn_frame': btn_frame
     })
     
     on_text_change()
